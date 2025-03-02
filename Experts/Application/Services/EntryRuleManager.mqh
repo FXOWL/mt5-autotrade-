@@ -9,8 +9,8 @@
 
 // インターフェース依存を削除
 // #include <Experts\Domain\IEntryRule.mqh>
-#include <Experts\Application\Composition\AndEntryRule.mqh>
-#include <Experts\Application\Composition\OrEntryRule.mqh>
+#include "..\Composition\AndEntryRule.mqh"
+#include "..\Composition\OrEntryRule.mqh"
 
 //+------------------------------------------------------------------+
 //| エントリールールを管理するクラス                                 |
@@ -97,7 +97,7 @@ public:
     }
     
     // ANDルールを作成（すべての条件を満たす必要がある）
-    void* CreateAndRule(string ruleNames[], ENUM_ORDER_TYPE orderType)
+    void* CreateAndRule(string &ruleNames[], ENUM_ORDER_TYPE orderType)
     {
         if(ArraySize(ruleNames) == 0)
             return NULL;
@@ -120,7 +120,7 @@ public:
     }
     
     // ORルールを作成（いずれかの条件を満たす必要がある）
-    void* CreateOrRule(string ruleNames[], ENUM_ORDER_TYPE orderType)
+    void* CreateOrRule(string &ruleNames[], ENUM_ORDER_TYPE orderType)
     {
         if(ArraySize(ruleNames) == 0)
             return NULL;

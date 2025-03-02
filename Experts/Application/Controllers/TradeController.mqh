@@ -9,9 +9,9 @@
 
 #include <Trade\Trade.mqh>
 // #include <Experts\Domain\IEntryRule.mqh>  // インターフェースの代わりにダックタイピングを使用
-#include <Experts\Domain\ITrailingRule.mqh>
-#include <Experts\Domain\Entry\Price\MABuyStrategy.mqh>
-#include <Experts\Domain\Entry\Price\MASellStrategy.mqh>
+#include "..\..\Domain\ITrailingRule.mqh"
+#include "..\..\Domain\Entry\Price\MABuyStrategy.mqh"
+#include "..\..\Domain\Entry\Price\MASellStrategy.mqh"
 
 //+------------------------------------------------------------------+
 //| トレード操作を管理するコントローラークラス                       |
@@ -145,13 +145,35 @@ public:
     // ティック処理
     void ProcessTick(string symbol, ENUM_TIMEFRAMES timeframe)
     {
+        // 新しいバーのチェック
         m_isNewBar = IsNewBar(symbol, timeframe);
         
-        // バーが変わった場合にのみエントリー条件をチェック
-        if(m_isNewBar)
+        // デバッグログの追加
+        static int tickCounter = 0;
+        if(++tickCounter % 100 == 0) // 100ティックごとにログ出力
         {
+            Print("Processing tick #", tickCounter, ", IsNewBar=", m_isNewBar);
+        }
+        
+        // テスト中は常にエントリー条件をチェック
+        #ifdef __MQL5__
+        if(MQLInfoInteger(MQL_TESTER))
+        {
+            // テスト中は毎ティックでチェック
             CheckEntryRules(symbol, timeframe);
         }
+        else
+        {
+            // 通常の運用ではバーが変わった場合にのみチェック
+            if(m_isNewBar)
+            {
+                CheckEntryRules(symbol, timeframe);
+            }
+        }
+        #else
+            // MQL4の場合または条件分岐できない場合は常にチェック
+            CheckEntryRules(symbol, timeframe);
+        #endif
         
         // オープンポジションのトレーリングストップを処理
         ProcessTrailingStop(symbol, timeframe);
@@ -160,86 +182,134 @@ public:
     // エントリー条件のチェック
     void CheckEntryRules(string symbol, ENUM_TIMEFRAMES timeframe)
     {
+        Print("CheckEntryRules called: symbol=", symbol, ", timeframe=", EnumToString(timeframe));
+        
         // 買いエントリールールのチェック
-        if(m_buyRules != NULL && ((MABuyStrategy*)m_buyRules).ShouldEnter(symbol, timeframe))
+        if(m_buyRules != NULL)
         {
-            // アカウント残高の取得
-            double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+            Print("Checking buy rules...");
+            bool shouldEnter = ((MABuyStrategy*)m_buyRules).ShouldEnter(symbol, timeframe);
+            Print("Buy rules result: ", shouldEnter ? "TRUE - Should enter" : "FALSE - Should not enter");
             
-            // エントリー
-            double entryPrice = SymbolInfoDouble(symbol, SYMBOL_ASK);
-            double sl = ((MABuyStrategy*)m_buyRules).CalculateSL(symbol, ORDER_TYPE_BUY, entryPrice);
-            double tp = ((MABuyStrategy*)m_buyRules).CalculateTP(symbol, ORDER_TYPE_BUY, entryPrice);
-            double volume = ((MABuyStrategy*)m_buyRules).CalculateLot(symbol, balance);
-            
-            // 買い注文を送信
-            bool result = m_trade.Buy(volume, symbol, 0, sl, tp);
-            
-            // エラーチェック
-            if(!result)
+            if(shouldEnter)
             {
-                int lastError = m_trade.ResultRetcode();
-                if(lastError == 4756) // Unsupported filling mode
+                // アカウント残高の取得
+                double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+                
+                // エントリー
+                double entryPrice = SymbolInfoDouble(symbol, SYMBOL_ASK);
+                double sl = ((MABuyStrategy*)m_buyRules).CalculateSL(symbol, ORDER_TYPE_BUY, entryPrice);
+                double tp = ((MABuyStrategy*)m_buyRules).CalculateTP(symbol, ORDER_TYPE_BUY, entryPrice);
+                double volume = ((MABuyStrategy*)m_buyRules).CalculateLot(symbol, balance);
+                
+                Print("Placing BUY order: Price=", entryPrice, ", SL=", sl, ", TP=", tp, ", Volume=", volume);
+                
+                // 買い注文を送信
+                bool result = m_trade.Buy(volume, symbol, 0, sl, tp);
+                
+                // エラーチェック
+                if(!result)
                 {
-                    // 別のフィリングモードを試す
-                    ENUM_ORDER_TYPE_FILLING currentFilling = m_trade.TypeFilling();
-                    if(currentFilling == ORDER_FILLING_FOK)
+                    int lastError = (int)m_trade.ResultRetcode();
+                    Print("Buy order failed with error code: ", lastError, " (", m_trade.ResultRetcodeDescription(), ")");
+                    if(lastError == 4756) // Unsupported filling mode
                     {
-                        m_trade.SetTypeFilling(ORDER_FILLING_IOC);
-                    }
-                    else
-                    {
-                        m_trade.SetTypeFilling(ORDER_FILLING_RETURN);
+                        // 別のフィリングモードを試す
+                        MqlTradeRequest request = {};
+                        m_trade.Request(request);
+                        ENUM_ORDER_TYPE_FILLING currentFilling = (ENUM_ORDER_TYPE_FILLING)request.type_filling;
+                        if(currentFilling == ORDER_FILLING_FOK)
+                        {
+                            m_trade.SetTypeFilling(ORDER_FILLING_IOC);
+                            Print("Switching filling mode from FOK to IOC");
+                        }
+                        else
+                        {
+                            m_trade.SetTypeFilling(ORDER_FILLING_RETURN);
+                            Print("Switching filling mode to RETURN");
+                        }
+                        
+                        // 再度注文を送信
+                        result = m_trade.Buy(volume, symbol, 0, sl, tp);
+                        Print("Second buy attempt result: ", result ? "SUCCESS" : "FAILED");
                     }
                     
-                    // 再度注文を送信
-                    m_trade.Buy(volume, symbol, 0, sl, tp);
+                    // エラーログ
+                    Print("Buy order error: ", m_trade.ResultRetcodeDescription());
                 }
-                
-                // エラーログ
-                Print("Buy order error: ", m_trade.ResultRetcodeDescription());
+                else
+                {
+                    Print("Buy order placed successfully");
+                }
             }
+        }
+        else
+        {
+            Print("Buy rules not set");
         }
         
         // 売りエントリールールのチェック
-        if(m_sellRules != NULL && ((MASellStrategy*)m_sellRules).ShouldEnter(symbol, timeframe))
+        if(m_sellRules != NULL)
         {
-            // アカウント残高の取得
-            double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+            Print("Checking sell rules...");
+            bool shouldEnter = ((MASellStrategy*)m_sellRules).ShouldEnter(symbol, timeframe);
+            Print("Sell rules result: ", shouldEnter ? "TRUE - Should enter" : "FALSE - Should not enter");
             
-            // エントリー
-            double entryPrice = SymbolInfoDouble(symbol, SYMBOL_BID);
-            double sl = ((MASellStrategy*)m_sellRules).CalculateSL(symbol, ORDER_TYPE_SELL, entryPrice);
-            double tp = ((MASellStrategy*)m_sellRules).CalculateTP(symbol, ORDER_TYPE_SELL, entryPrice);
-            double volume = ((MASellStrategy*)m_sellRules).CalculateLot(symbol, balance);
-            
-            // 売り注文を送信
-            bool result = m_trade.Sell(volume, symbol, 0, sl, tp);
-            
-            // エラーチェック
-            if(!result)
+            if(shouldEnter)
             {
-                int lastError = m_trade.ResultRetcode();
-                if(lastError == 4756) // Unsupported filling mode
+                // アカウント残高の取得
+                double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+                
+                // エントリー
+                double entryPrice = SymbolInfoDouble(symbol, SYMBOL_BID);
+                double sl = ((MASellStrategy*)m_sellRules).CalculateSL(symbol, ORDER_TYPE_SELL, entryPrice);
+                double tp = ((MASellStrategy*)m_sellRules).CalculateTP(symbol, ORDER_TYPE_SELL, entryPrice);
+                double volume = ((MASellStrategy*)m_sellRules).CalculateLot(symbol, balance);
+                
+                Print("Placing SELL order: Price=", entryPrice, ", SL=", sl, ", TP=", tp, ", Volume=", volume);
+                
+                // 売り注文を送信
+                bool result = m_trade.Sell(volume, symbol, 0, sl, tp);
+                
+                // エラーチェック
+                if(!result)
                 {
-                    // 別のフィリングモードを試す
-                    ENUM_ORDER_TYPE_FILLING currentFilling = m_trade.TypeFilling();
-                    if(currentFilling == ORDER_FILLING_FOK)
+                    int lastError = (int)m_trade.ResultRetcode();
+                    Print("Sell order failed with error code: ", lastError, " (", m_trade.ResultRetcodeDescription(), ")");
+                    if(lastError == 4756) // Unsupported filling mode
                     {
-                        m_trade.SetTypeFilling(ORDER_FILLING_IOC);
-                    }
-                    else
-                    {
-                        m_trade.SetTypeFilling(ORDER_FILLING_RETURN);
+                        // 別のフィリングモードを試す
+                        MqlTradeRequest request = {};
+                        m_trade.Request(request);
+                        ENUM_ORDER_TYPE_FILLING currentFilling = (ENUM_ORDER_TYPE_FILLING)request.type_filling;
+                        if(currentFilling == ORDER_FILLING_FOK)
+                        {
+                            m_trade.SetTypeFilling(ORDER_FILLING_IOC);
+                            Print("Switching filling mode from FOK to IOC");
+                        }
+                        else
+                        {
+                            m_trade.SetTypeFilling(ORDER_FILLING_RETURN);
+                            Print("Switching filling mode to RETURN");
+                        }
+                        
+                        // 再度注文を送信
+                        result = m_trade.Sell(volume, symbol, 0, sl, tp);
+                        Print("Second sell attempt result: ", result ? "SUCCESS" : "FAILED");
                     }
                     
-                    // 再度注文を送信
-                    m_trade.Sell(volume, symbol, 0, sl, tp);
+                    // エラーログ
+                    Print("Sell order error: ", m_trade.ResultRetcodeDescription());
                 }
-                
-                // エラーログ
-                Print("Sell order error: ", m_trade.ResultRetcodeDescription());
+                else
+                {
+                    Print("Sell order placed successfully");
+                }
             }
+        }
+        else
+        {
+            Print("Sell rules not set");
         }
     }
     

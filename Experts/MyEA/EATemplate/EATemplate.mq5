@@ -12,21 +12,21 @@
 
 // 自作インクルード
 // ドメインモデルのインクルード
-#include <Experts\Domain\IEntryRule.mqh>
-#include <Experts\Domain\ITrailingRule.mqh>
-#include <Experts\Domain\Exit\Trailing\SimpleTrailingRule.mqh>
+#include "..\..\Domain\IEntryRule.mqh"
+#include "..\..\Domain\ITrailingRule.mqh"
+#include "..\..\Domain\Exit\Trailing\SimpleTrailingRule.mqh"
 
 // アプリケーション層のインクルード
-#include <Experts\Application\Composition\CompositeEntryRule.mqh>
-#include <Experts\Application\Composition\AndEntryRule.mqh>
-#include <Experts\Application\Composition\OrEntryRule.mqh>
-#include <Experts\Application\Services\EntryRuleManager.mqh>
-#include <Experts\Application\Services\TrailingRuleManager.mqh>
-#include <Experts\Application\Controllers\TradeController.mqh>
+#include "..\..\Application\Composition\CompositeEntryRule.mqh"
+#include "..\..\Application\Composition\AndEntryRule.mqh"
+#include "..\..\Application\Composition\OrEntryRule.mqh"
+#include "..\..\Application\Services\EntryRuleManager.mqh"
+#include "..\..\Application\Services\TrailingRuleManager.mqh"
+#include "..\..\Application\Controllers\TradeController.mqh"
 
 // 各種戦略インクルード
-#include <Experts\Domain\Entry\Price\MABuyStrategy.mqh>
-#include <Experts\Domain\Entry\Price\MASellStrategy.mqh>
+#include "..\..\Domain\Entry\Price\MABuyStrategy.mqh"
+#include "..\..\Domain\Entry\Price\MASellStrategy.mqh"
 
 //--- 入力パラメータ
 input string BasicSettingsGroup = "==== 基本設定 ====";  // 基本設定

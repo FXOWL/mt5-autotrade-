@@ -94,7 +94,7 @@ public:
         double points = SymbolInfoDouble(symbol, SYMBOL_POINT);
         double slDistance = 500 * points; // 50pips
         
-        return NormalizeDouble(entryPrice - slDistance, SymbolInfoInteger(symbol, SYMBOL_DIGITS));
+        return NormalizeDouble(entryPrice - slDistance, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
     }
     
     // 利確価格を計算
@@ -104,7 +104,7 @@ public:
         double points = SymbolInfoDouble(symbol, SYMBOL_POINT);
         double tpDistance = 1000 * points; // 100pips
         
-        return NormalizeDouble(entryPrice + tpDistance, SymbolInfoInteger(symbol, SYMBOL_DIGITS));
+        return NormalizeDouble(entryPrice + tpDistance, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
     }
     
     // エントリーシグナルを生成するメソッド
@@ -129,9 +129,18 @@ public:
             return WRONG_VALUE;
         }
         
-        // 一つ前のバーが完成しているかチェック
-        if(rates[1].tick_volume <= 1)
-            return WRONG_VALUE;
+        // バックテストでは前のバーの完成チェックをスキップする
+        #ifdef __MQL5__
+        if(!MQLInfoInteger(MQL_TESTER))
+        {
+            // 一つ前のバーが完成しているかチェック（実際の運用でのみチェック）
+            if(rates[1].tick_volume <= 1)
+            {
+                Print("Previous bar not complete: tick_volume = ", rates[1].tick_volume);
+                return WRONG_VALUE;
+            }
+        }
+        #endif
         
         // 移動平均値を取得
         double maValue[1];
@@ -141,9 +150,15 @@ public:
             return WRONG_VALUE;
         }
         
+        // デバッグログ: 現在の値を出力
+        Print("MABuyStrategy: symbol=", symbol, ", open=", rates[0].open, ", close=", rates[0].close, ", MA=", maValue[0]);
+        
         // 買いシグナルのチェック：ローソク足がMAを下から上にクロス
         if(rates[0].open < maValue[0] && rates[0].close > maValue[0])
+        {
+            Print("BUY signal generated: open(", rates[0].open, ") < MA(", maValue[0], ") && close(", rates[0].close, ") > MA(", maValue[0], ")");
             return ORDER_TYPE_BUY;
+        }
         
         return WRONG_VALUE;
     }

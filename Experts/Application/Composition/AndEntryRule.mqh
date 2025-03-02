@@ -8,8 +8,8 @@
 #property version   "1.00"
 
 #include "CompositeEntryRule.mqh"
-#include <Experts\Domain\Entry\Price\MABuyStrategy.mqh>
-#include <Experts\Domain\Entry\Price\MASellStrategy.mqh>
+#include "..\..\Domain\Entry\Price\MABuyStrategy.mqh"
+#include "..\..\Domain\Entry\Price\MASellStrategy.mqh"
 
 //+------------------------------------------------------------------+
 //| すべてのルールが満たされた場合にエントリーする複合ルール        |
