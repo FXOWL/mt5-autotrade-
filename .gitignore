@@ -1,0 +1,13 @@
+Files
+Images
+Include/*
+!Include/_MyInclude/
+Logs
+Profiles
+Scripts
+!Scripts/_MyScripts
+Experts/Advisors
+Experts/Examples
+Experts/Free Robots
+Indicators/Free*
+Indicators/Examples

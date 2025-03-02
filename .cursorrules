@@ -1,0 +1,529 @@
+# MQL5開発ルール
+
+## コーディング規約
+
+### 命名規則
+- 変数名: キャメルケース (例: `accountBalance`)
+- 関数名: パスカルケース (例: `CalculateProfit`)
+- 定数: 大文字とアンダースコア (例: `MAX_ORDERS`)
+- クラス名: パスカルケース (例: `TradeManager`)
+
+### コードフォーマット
+- インデントはスペース4つを使用
+- 関数の波括弧は新しい行に配置
+- 変数宣言は各行に1つずつ
+- コード行の最大長は100文字
+
+## プログラム構造
+
+### エキスパートアドバイザー (EA)
+- EAはMyAdvisorsフォルダに配置すること
+- すべてのEAは`OnInit()`, `OnDeinit()`, `OnTick()`を実装すること
+- グローバル変数の使用を最小限に抑える
+- 入力パラメータは適切に説明すること
+
+### インディケーター
+- `OnCalculate()`関数を正しく実装
+- バッファの初期化を適切に行う
+- 他のインディケーターを入力として使用する場合は適切に処理
+
+### スクリプト
+- 単一の目的に焦点を当てる
+- `OnStart()`関数内に主要ロジックを配置
+
+## エラー処理
+
+### 取引関連
+- すべての取引操作の後にエラーチェックを実施
+- エラーコードを適切に記録し処理
+- 特にエラー146 (トレードコンテキストビジー) に対する対策を実装
+- フィリングモード（約定方法）の問題に対応：
+  - Three Traderブローカーではフィリングモードの互換性問題が確認されている
+  - Three Traderを使用する際は特に以下の点に注意する：
+    - FOKフィリングモードはサポートされていない場合がある
+    - 初期設定ではIOCフィリングモードを使用するのが安全
+    - エラー4756の発生率が高いため、必ず複数のフィリングモードを試行する機能を実装する
+  - ブローカーがサポートするフィリングモードを初期化時に自動検出する
+  ```mql5
+  // 初期化時にサポートされているフィリングモードを検出
+  uint filling = (uint)SymbolInfoInteger(_Symbol, SYMBOL_FILLING_MODE);
+  if(filling == 0) {
+      // サポートがない場合はIOCモードを試用
+      fillingMode = ORDER_FILLING_IOC;
+  } else {
+      // サポートされているモードを選択（優先順位: FOK > IOC > RETURN）
+      if((filling & SYMBOL_FILLING_FOK) != 0) {
+          fillingMode = ORDER_FILLING_FOK;
+      } else if((filling & SYMBOL_FILLING_IOC) != 0) {
+          fillingMode = ORDER_FILLING_IOC;
+      } else {
+          fillingMode = ORDER_FILLING_RETURN;
+      }
+  }
+  ```
+  - 注文送信後に「Unsupported filling mode」（エラー4756）が発生した場合は別のモードで再試行
+  ```mql5
+  // エラー発生時に別のフィリングモードで再試行
+  if(lastError == 4756) {
+      if(fillingMode == ORDER_FILLING_FOK) {
+          request.type_filling = ORDER_FILLING_IOC;
+      } else {
+          request.type_filling = ORDER_FILLING_RETURN;
+      }
+      // 再度注文を送信...
+  }
+  ```
+  - Three Traderでのテスト時には常にエラーログを有効にし、エラー4756が発生していないか監視する
+  - エラー4756を明示的にエラーハンドリングに追加
+  - エラー情報をデバッグログに出力
+
+### 一般エラー
+- 適切な例外処理を実装
+- エラーログを適切に記録
+- 致命的なエラーが発生した場合は安全に終了
+
+## パフォーマンス最適化
+
+### メモリ使用
+- 大きな配列は動的に割り当て、使用後に解放
+- 不要なオブジェクトは適切に削除
+
+### 実行速度
+- ティック処理内で重い計算を避ける
+- 必要な計算のみを実行
+- データベース操作は効率的に行う
+
+## データベース操作
+
+### SQLite
+- トランザクションを適切に使用
+- プリペアドステートメントを活用
+- 大量データ処理時はバッチ処理を検討
+
+## テストと最適化
+
+### バックテスト
+- 異なる時間枠でテストを実施
+- 適切なモデル品質を選択
+- 最適化結果を過度に信頼しない
+- テスト中のエラーログを確認し、「未知のエラー」と表示される場合はエラーコードを特定
+- 新しい環境（ブローカー）でテストする際は、サポートされるフィリングモードを確認
+- Three Traderでテストする場合は、特にフィリングモード関連のエラーに注意し、テストの初期段階で確認する
+- Three Traderでは、シンボル名に「.raw」サフィックスが付くことがあるため、シンボル名の処理に注意
+
+### フォワードテスト
+- 実際の市場条件でテスト
+- デモ口座で十分な期間テスト後に実口座へ移行
+- Three Traderのデモ口座と実口座での挙動の違いを確認する
+
+## セキュリティ
+
+### データ保護
+- 機密情報を平文で保存しない
+- 外部接続時はセキュリティを確保
+
+### リスク管理
+- 適切な資金管理ルールを実装
+- 損失制限メカニズムを組み込む
+
+## ドキュメント
+
+### コードコメント
+- 複雑なロジックには詳細なコメントを追加
+- 関数の目的と引数を説明
+- 重要なアルゴリズムの動作原理を記述
+
+### 外部ドキュメント
+- 使用方法ガイドを作成
+- パラメータの意味と推奨値を説明
+- バージョン履歴を維持
+- よくあるエラーとその解決策を記載
+- Three Traderでの使用時の注意点を明記（特にフィリングモード設定やエラー対応）
+
+## バージョン管理
+
+### コードの変更
+- 重要な変更点を記録
+- セマンティックバージョニングを使用
+- 変更ごとにテストを実行
+
+## 配布と共有
+
+### コード共有
+- ライセンス情報を明確に記載
+- 依存関係を明示
+- MQL5コミュニティの規則に従う
+
+## ブローカー固有の考慮事項
+
+### Three Trader
+- フィリングモードの互換性問題に対応するコードを常に実装する
+- シンボル名に「.raw」サフィックスが付く場合があるため、シンボル名の処理に柔軟性を持たせる
+- ストップレベルの要件がブローカーによって異なる場合があるため、自動調整機能を実装する
+- スプレッドが他のブローカーと異なる場合があるため、スプレッドフィルター設定に余裕を持たせる
+
+## クリーンアーキテクチャ実装規約
+
+### ディレクトリ構造
+- MetaTrader 5のディレクトリ構造に合わせて以下のように実装する。
+- MQL5のデフォルトのディレクトリ構造を変更しないこと。
+  ```
+  MQL5/
+  ├── Experts/
+  │   ├── Strategy/ # 自作EAで使用するトレード条件を格納するディレクトリ。他のディレクトリには配置しない
+  │   │   ├── Buy/ # 買いトレード条件を格納するディレクトリ
+  │   │   ├── Sell/ # 売りトレード条件を格納するディレクトリ
+  │   │   ├── Lot/ # ロットの計算方法を格納するディレクトリ
+  │   │   ├── SL/ # ストップロスの計算方法を格納するディレクトリ
+  │   │   ├── TP/ # 利確の計算方法を格納するディレクトリ
+  │   │   ├── Trailing/ # トレーリングストップ条件を格納するディレクトリ
+  │   ├── MyEA/ # 自作のEAを格納するディレクトリ。他のディレクトリには配置しない
+  │   │   ├── EATemplate/   # 依存性の注入とエントリーポイントのみ
+  │   │   │   ├── README.md # テンプレートの説明
+  │   │   │   └── EATemplate.mq5 # Strategyディレクトリを参照して、依存性の注入とエントリーポイントのみを実装する
+  │   │   └── [EA1]/   # EATemplateをベースに作成
+  │   │       ├── README.md   # EA1の特徴、検証結果などの説明。
+  │   │       └── [EA1].mq5   # EATemplateとStrategyディレクトリをベースにして、EAを作成する
+  ├── Include/
+  │   └── _MyInclude/ # 自作のファイルを格納するディレクトリ。他のディレクトリには配置しない
+  ├── Indicators/
+  │   └── _MyIndicators/ # 自作のインディケーターを格納するディレクトリ。他のディレクトリには配置しない
+  ├── Libraries/ # Rustで作成したライブラリを格納する
+  └── Scripts/
+      └── _MyScripts/ # 自作のスクリプトを格納するディレクトリ。他のディレクトリには配置しない
+          ├── Tests/                  # テスト
+          └── Tools/                  # ツール
+  ```
+
+### 命名規則
+- インターフェース名はプレフィックスに「I」をつける（例：`IEntryRule`）
+- 抽象クラス名はプレフィックスに「Abstract」をつける（例：`AbstractStrategy`）
+- ファイル名はクラス名と同じにする（例：クラス`TradeController`のファイルは`TradeController.mqh`）
+
+### 依存関係の方向
+- 内側のレイヤー（Core）は外側のレイヤー（Adapters, Infrastructure）に依存してはならない
+- 外側のレイヤーが内側のレイヤーに依存する場合は、インターフェースを介して行う
+- 依存関係の注入は、Expertsディレクトリの.mq5ファイル内で行う
+
+### コーディング規約
+- 単一責任の原則を守る（各クラスは一つの責任のみを持つ）
+- インターフェースを使用して疎結合を実現する
+- 具象クラスへの直接依存を避け、インターフェースに依存する
+- グローバル変数やシングルトンの使用を最小限に抑える
+
+### メモリ管理
+- ポインタを使用する場合はメモリリークを防ぐため、OnDeinitで適切に解放する
+- 大量のデータを扱う場合は、動的配列を使用し適切に解放する
+
+### エラー処理
+- 各レイヤーで適切なエラーハンドリングを実装
+- コアロジックでは例外を投げる代わりに、エラー状態を返す設計を検討
+- インフラストラクチャレイヤーでは、MT5APIのエラーコードを適切に変換して上位レイヤーに伝える
+
+### テスト
+- ユニットテストを書くためにモック可能な設計にする
+- テスト容易性のために、依存オブジェクトを注入可能にする
+- テスト用のスクリプトをScripts/[プロジェクト名]/Testsディレクトリに配置
+
+### パフォーマンス最適化
+- OnTickハンドラーではパフォーマンスクリティカルな処理を最適化
+- 頻繁に呼び出される関数では、過度な抽象化によるオーバーヘッドを避ける
+- オブジェクトの生成と破棄のコストを考慮したライフサイクル管理
+
+### ドキュメント
+- 各クラスとインターフェースには目的と責任を記述するコメントを含める
+- 複雑なビジネスロジックには実装の意図を説明するコメントを追加
+- アーキテクチャの全体像を説明するドキュメントを用意する
+
+## 複数エントリー条件の設計パターン
+
+### 基本設計
+- 複数のエントリー条件を柔軟に追加・削除できるようにCompositeパターンを使用する
+- 基本インターフェース（`IEntryRule`）を実装するすべてのルールは一貫した方法でアクセス可能
+- 複数ルールを組み合わせるための抽象基底クラス（`CompositeEntryRule`）を用意
+- 条件の組み合わせ方として、AND条件（すべての条件を満たす）とOR条件（いずれかの条件を満たす）の実装を提供
+
+### クラス構造
+```
+IEntryRule（インターフェース）
+ ├── 個別エントリールール（RSIEntryRule, MACrossEntryRule など）
+ └── CompositeEntryRule（複合ルールの抽象基底クラス）
+      ├── AndEntryRule（AND条件）
+      └── OrEntryRule（OR条件）
+```
+
+### ルール管理
+- エントリールールの登録・管理・切り替えを行う`EntryRuleManager`クラスを使用
+- 名前付きでルールを登録・参照できるようにし、実行時の戦略変更を容易に
+- 入力パラメータを通じてユーザーが戦略を選択できるように設計
+
+### 実装のポイント
+- 各ルールクラスは`ShouldEnter`メソッドを実装し、エントリー条件を評価
+- エントリー情報（方向、ボリューム、SL/TP）は一貫したインターフェースで取得
+- すべてのルールで共通のパラメータ（時間枠、ロット数、SL/TPなど）を持つように標準化
+- メモリ管理に注意し、デストラクタで動的に割り当てたオブジェクトを適切に解放
+
+### メモリ管理上の注意点
+- 複合ルールは保持しているサブルールのメモリ管理責任を持つ
+- ルールマネージャーは登録されたルールのメモリ管理責任を持つ
+- アクティブルールへの参照は所有権を持たないポインタとし、二重解放を防止
+
+### 拡張方法
+```mql5
+// 1. 新しいエントリールールの実装
+class BollingerBandEntryRule : public IEntryRule 
+{
+    // IEntryRuleインターフェースに従って実装
+};
+
+// 2. 複合ルールへの追加
+AndEntryRule *multipleConditions = new AndEntryRule();
+multipleConditions.AddRule(new MACrossEntryRule(...));
+multipleConditions.AddRule(new RSIEntryRule(...));
+multipleConditions.AddRule(new BollingerBandEntryRule(...));
+
+// 3. 管理クラスへの登録
+ruleManager.RegisterRule(multipleConditions, "MultipleCriteria");
+```
+
+### 使用上のベストプラクティス
+- 複雑な条件を扱う場合は階層的な組み合わせを検討（例：(A AND B) OR (C AND D)）
+- パフォーマンスクリティカルな処理では、条件評価の順序を最適化（軽い処理→重い処理）
+- ルールの組み合わせはバックテストで十分に検証し、最適な組み合わせを見つける
+- ユーザーが容易に戦略を切り替えられるようにするため、一貫した命名規則とドキュメントを提供
+
+## パフォーマンスを考慮したDDD実装ルール
+
+### 基本方針
+- パフォーマンスクリティカルな環境である取引システムにおいて、DDD適用時はパフォーマンスへの影響を常に考慮する
+- MT5の特性（ティック処理、メモリ管理など）に合わせてDDDパターンを調整する
+- 過度な抽象化によるオーバーヘッドを避けつつ、DDDの利点を最大化する
+
+### レイヤー設計
+- コアドメイン（取引ロジック）とインフラストラクチャ（MT5 API）を明確に分離する
+- 以下の3層に分けることを推奨：
+  1. **コアドメイン層**: 純粋な取引ロジックと意思決定（MT5依存なし）
+  2. **アプリケーション層**: ユースケースの調整とドメイン層の活用
+  3. **インフラストラクチャ層**: MT5 APIとの連携（データ取得、注文実行など）
+
+### パフォーマンス最適化戦略
+- **ホットパス分析**: `OnTick()`内で頻繁に実行される部分を特定し、最適化を優先
+- **ダブルディスパッチの回避**: ポリモーフィズムの過度な使用（特に`OnTick()`内）を避ける
+- **メモリアロケーション最小化**: 特にティック処理中の新規オブジェクト生成を制限
+  ```mql5
+  // 悪い例 - ティックごとにオブジェクトを生成
+  void OnTick() {
+      PriceData* data = new PriceData();
+      // ... 処理 ...
+      delete data;
+  }
+  
+  // 良い例 - 再利用可能なオブジェクト
+  PriceData* g_priceData = NULL;
+  void OnInit() {
+      g_priceData = new PriceData();
+  }
+  void OnTick() {
+      g_priceData.Update();
+      // ... 処理 ...
+  }
+  void OnDeinit(const int reason) {
+      delete g_priceData;
+  }
+  ```
+
+### エンティティとバリューオブジェクト設計
+- **軽量化**: エンティティは必要最小限のプロパティに制限
+- **イミュータブル設計**: バリューオブジェクトは不変に設計し、コピーコストを考慮
+- **ID管理の最適化**: チケット番号など既存のIDを活用し、独自ID生成を避ける
+- **ライフサイクル考慮**: 短命オブジェクトとシングルトンのバランスを取る
+
+### コレクション処理
+- **固定長配列の使用**: サイズが予測可能な場合は動的配列よりも固定長配列を優先
+- **イテレーション最適化**: コレクション処理を最適化し、不要なループを避ける
+- **バッファ再利用**: インジケーターデータなどのバッファは再割り当てを避け再利用
+
+### インジケーターと外部データアクセス
+- **ハンドルキャッシング**: インジケーターハンドルを再利用し、取得回数を最小化
+- **データバッファリング**: 頻繁に利用するデータは一度取得してメモリに保持
+- **連続していないデータアクセス**: `CopyBuffer()`などの呼び出しを最適化
+  ```mql5
+  // データアクセスのキャッシング例
+  class OptimizedMAProvider : public IMAProvider {
+  private:
+      int m_handle;
+      datetime m_lastUpdateTime;
+      double m_lastValue;
+      
+  public:
+      double GetMA(string symbol, ENUM_TIMEFRAMES timeframe, int period) {
+          datetime currentTime = iTime(symbol, timeframe, 0);
+          
+          // 同じバー内ならキャッシュ値を返す
+          if(currentTime == m_lastUpdateTime && m_lastValue != EMPTY_VALUE) {
+              return m_lastValue;
+          }
+          
+          // 新しいデータを取得
+          double buffer[1];
+          if(CopyBuffer(m_handle, 0, 0, 1, buffer) > 0) {
+              m_lastValue = buffer[0];
+              m_lastUpdateTime = currentTime;
+          }
+          
+          return m_lastValue;
+      }
+  };
+  ```
+
+### MT5 APIとの効率的な統合
+- **コスト分析**: MT5 API呼び出しのコストを理解し、高コスト操作を最小化
+- **バルク操作**: 可能な場合は複数の操作をまとめて実行
+- **結果キャッシング**: API呼び出し結果を適切にキャッシング
+
+### リポジトリ実装
+- **遅延ロード**: 必要になるまでデータをロードしない設計
+- **キャッシング戦略**: ポジション情報など頻繁にアクセスするデータをキャッシュ
+- **バッチ処理**: 複数のデータアクセスをバッチ化して効率を向上
+
+### ドメインサービス設計
+- **ステートレス設計**: 可能な限りサービスをステートレスに保ち、メモリ使用を最適化
+- **共有ロジックの抽出**: 共通ロジックはサービスに抽出してコード重複を防止
+- **ドメイン操作の原子性**: 関連する操作をまとめてトランザクション的に処理
+
+### イベント処理
+- **イベント最適化**: 必要なイベントのみを処理し、不要なイベント発火を避ける
+- **イベントキュー管理**: イベント処理のバッチ化を検討
+- **イベントフィルタリング**: 関連性の低いイベントを早期にフィルタリング
+
+### テスト可能性とパフォーマンスのバランス
+- **スマートモック**: パフォーマンスを犠牲にしない範囲でテスト容易性を確保
+- **テスト分離**: 内部ドメインロジックと外部依存（MT5 API）を分離してテスト
+- **テスト専用インターフェース**: 必要に応じてテスト用のインターフェースを追加
+
+### 実装パターン選択
+- **パターン選択基準**: 使用するDDDパターンをパフォーマンス影響度で評価
+- **優先度**: 取引ロジックの正確性 > パフォーマンス > コード整理
+- **適用方法**: 以下の優先順位でDDDパターンを適用
+  1. 戦略的DDD（ユビキタス言語、境界づけられたコンテキスト）は常に適用
+  2. エンティティ、バリューオブジェクト、集約は慎重に適用
+  3. ドメインイベントはパフォーマンスクリティカルな部分では制限的に使用
+
+### パフォーマンスモニタリング
+- **プロファイリング**: ティック処理時間を定期的に測定し記録
+- **ボトルネック特定**: パフォーマンス低下の原因を特定するためのロギングを実装
+- **継続的最適化**: 実稼働データに基づいて継続的にパフォーマンスを改善
+
+### ハイブリッドアプローチ
+- **重要度による差別化**: パフォーマンスクリティカルな部分とそうでない部分で実装方法を変える
+- **OnTick()の最適化**: OnTickハンドラでは直接的なアプローチを優先
+- **設定変更や初期化**: OnInit()やパラメータ変更など頻度の低い処理ではDDDを全面適用
+
+### 実装例
+```mql5
+// パフォーマンスを考慮したDDD実装例
+
+// ドメイン層（抽象化・インターフェース）
+interface IPriceAnalyzer {
+    bool IsBullishPattern(string symbol, ENUM_TIMEFRAMES timeframe);
+};
+
+// インフラストラクチャ層（具体的な実装）
+class MT5PriceAnalyzer : public IPriceAnalyzer {
+private:
+    // キャッシュ関連のメンバー
+    string m_lastSymbol;
+    ENUM_TIMEFRAMES m_lastTimeframe;
+    datetime m_lastAnalysisTime;
+    bool m_lastResult;
+    
+    // ハンドル管理
+    int m_maHandle;
+    
+public:
+    MT5PriceAnalyzer() {
+        m_lastAnalysisTime = 0;
+        m_maHandle = INVALID_HANDLE;
+    }
+    
+    ~MT5PriceAnalyzer() {
+        if(m_maHandle != INVALID_HANDLE) {
+            IndicatorRelease(m_maHandle);
+        }
+    }
+    
+    // IPriceAnalyzerインターフェースの実装
+    bool IsBullishPattern(string symbol, ENUM_TIMEFRAMES timeframe) {
+        // キャッシュチェック - 同じバー内の繰り返し呼び出しを最適化
+        datetime currentBarTime = iTime(symbol, timeframe, 0);
+        if(symbol == m_lastSymbol && timeframe == m_lastTimeframe && 
+           currentBarTime == m_lastAnalysisTime) {
+            return m_lastResult;
+        }
+        
+        // ハンドル初期化（必要な場合のみ）
+        if(m_maHandle == INVALID_HANDLE || symbol != m_lastSymbol || 
+           timeframe != m_lastTimeframe) {
+            // 古いハンドルを解放
+            if(m_maHandle != INVALID_HANDLE) {
+                IndicatorRelease(m_maHandle);
+            }
+            // 新しいハンドルを取得
+            m_maHandle = iMA(symbol, timeframe, 20, 0, MODE_SMA, PRICE_CLOSE);
+            m_lastSymbol = symbol;
+            m_lastTimeframe = timeframe;
+        }
+        
+        // パターン分析ロジック
+        double maBuffer[3];
+        if(CopyBuffer(m_maHandle, 0, 0, 3, maBuffer) != 3) {
+            return false;
+        }
+        
+        // 結果計算（例: MAが上昇トレンドにある）
+        bool result = (maBuffer[0] > maBuffer[1] && maBuffer[1] > maBuffer[2]);
+        
+        // キャッシュを更新
+        m_lastAnalysisTime = currentBarTime;
+        m_lastResult = result;
+        
+        return result;
+    }
+};
+
+// アプリケーション層（オーケストレーション）
+class TradingSystem {
+private:
+    IPriceAnalyzer* m_priceAnalyzer;
+    
+public:
+    TradingSystem(IPriceAnalyzer* analyzer) : m_priceAnalyzer(analyzer) {}
+    
+    void ProcessTick() {
+        // パフォーマンスクリティカルな処理
+        if(m_priceAnalyzer.IsBullishPattern(_Symbol, PERIOD_CURRENT)) {
+            // トレードロジック
+        }
+    }
+};
+
+// エントリーポイント（最小限の依存性注入）
+IPriceAnalyzer* g_priceAnalyzer = NULL;
+TradingSystem* g_tradingSystem = NULL;
+
+int OnInit() {
+    g_priceAnalyzer = new MT5PriceAnalyzer();
+    g_tradingSystem = new TradingSystem(g_priceAnalyzer);
+    return INIT_SUCCEEDED;
+}
+
+void OnTick() {
+    // 直接呼び出し - パフォーマンス最適化
+    g_tradingSystem.ProcessTick();
+}
+
+void OnDeinit(const int reason) {
+    // メモリ解放
+    delete g_tradingSystem;
+    delete g_priceAnalyzer;
+}
