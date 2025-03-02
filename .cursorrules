@@ -14,6 +14,42 @@
 - 変数宣言は各行に1つずつ
 - コード行の最大長は100文字
 
+### ポリモーフィズムの実装
+- MQL5ではinterfaceキーワードがサポートされていないため、以下の方法でポリモーフィズムを実装する:
+  1. **純粋仮想関数を持つ抽象クラス**: 基底クラスに純粋仮想関数（`= 0`で終わる）を定義
+  ```mql5
+  // 正しい実装例
+  class ITradeCondition
+  {
+  public:
+      virtual bool Check(const string symbol, const ENUM_TIMEFRAMES timeframe) = 0;
+      virtual string GetFailureMessage() = 0;
+  };
+  ```
+  2. **ダックタイピング**: 同一の関数シグネチャを持つクラスを実装
+  ```mql5
+  // 実装例
+  class Strategy1
+  {
+  public:
+      bool ExecuteSignal(const string symbol) { /* 実装 */ }
+  };
+  
+  class Strategy2
+  {
+  public:
+      bool ExecuteSignal(const string symbol) { /* 実装 */ }
+  };
+  
+  // 使用例
+  void ProcessStrategy(void *strategy)
+  {
+      ((Strategy1 *)strategy).ExecuteSignal(_Symbol);  // キャストして使用
+  }
+  ```
+- interfaceではなくclassキーワードを使用する
+- インターフェースクラス名には「I」のプレフィックスを付ける（例: `IEntryRule`）
+
 ## プログラム構造
 
 ### エキスパートアドバイザー (EA)

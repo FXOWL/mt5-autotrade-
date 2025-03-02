@@ -16,13 +16,24 @@
 #include "..\..\Domain\ITrailingRule.mqh"
 #include "..\..\Domain\Exit\Trailing\SimpleTrailingRule.mqh"
 
+// 取引条件のインクルード
+#include "..\..\Domain\TradeCondition\ITradeCondition.mqh"
+#include "..\..\Domain\TradeCondition\SpreadCondition.mqh"
+#include "..\..\Domain\TradeCondition\TimeCondition.mqh"
+#include "..\..\Domain\TradeCondition\RiskCondition.mqh"
+#include "..\..\Domain\TradeCondition\PositionCondition.mqh"
+
 // アプリケーション層のインクルード
 #include "..\..\Application\Composition\CompositeEntryRule.mqh"
 #include "..\..\Application\Composition\AndEntryRule.mqh"
 #include "..\..\Application\Composition\OrEntryRule.mqh"
 #include "..\..\Application\Services\EntryRuleManager.mqh"
 #include "..\..\Application\Services\TrailingRuleManager.mqh"
+#include "..\..\Application\Services\TradeConditionService.mqh"
 #include "..\..\Application\Controllers\TradeController.mqh"
+
+// インフラストラクチャ層のインクルード
+#include "..\..\Infrastructure\Utils\DateTimeExt.mqh"
 
 // 各種戦略インクルード
 #include "..\..\Domain\Entry\Price\MABuyStrategy.mqh"
@@ -40,6 +51,12 @@ input bool     Allow_Sell           = true;               // 売りトレード�
 input bool     Use_TrailingStop     = false;              // トレーリングストップを使用
 input bool     Close_On_Opposite    = true;               // 反対方向の条件で決済
 
+input string ConditionSettingsGroup = "==== 取引条件設定 ====";  // 取引条件設定
+input int      Trade_Hour           = 12;                 // 取引時間（0-23）
+input double   Maximum_Risk         = 0.1;                // 最大リスク（余剰証拠金に対する割合）
+input double   Spread_Limit         = 20.0;               // スプレッド上限（ポイント単位）
+input int      Max_Positions        = 10;                 // 最大同時ポジション数
+
 input string MASettingsGroup = "==== 移動平均設定 ====";  // 移動平均設定
 input int      MA_Period            = 12;                 // 移動平均の期間
 input int      MA_Shift             = 6;                  // 移動平均のシフト
@@ -53,9 +70,10 @@ input string   Sell_Rules           = "MASell_Simple";    // 売り条件の選�
 input string   Trailing_Rules       = "SimpleTrailing";   // トレーリング条件の選択
 
 //--- グローバル変数
-TradeController *g_tradeController = NULL;        // トレードコントローラー
-EntryRuleManager *g_entryRuleManager = NULL;      // エントリールールマネージャー
-TrailingRuleManager *g_trailingRuleManager = NULL;// トレーリングルールマネージャー
+TradeController *g_tradeController = NULL;            // トレードコントローラー
+EntryRuleManager *g_entryRuleManager = NULL;          // エントリールールマネージャー
+TrailingRuleManager *g_trailingRuleManager = NULL;    // トレーリングルールマネージャー
+CTradeConditionService *g_tradeConditionService = NULL; // 取引条件サービス
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -66,9 +84,13 @@ int OnInit()
     g_tradeController = new TradeController();
     g_entryRuleManager = new EntryRuleManager();
     g_trailingRuleManager = new TrailingRuleManager();
+    g_tradeConditionService = new CTradeConditionService();
     
     // マジックナンバーの設定
     g_tradeController.SetMagicNumber(Magic_Number);
+    
+    // 取引条件の設定
+    SetupTradeConditions();
     
     // 戦略の登録
     if(!RegisterStrategies())
@@ -135,6 +157,13 @@ void OnDeinit(const int reason)
         g_trailingRuleManager = NULL;
     }
     
+    // 取引条件サービスの解放
+    if(g_tradeConditionService != NULL)
+    {
+        delete g_tradeConditionService;
+        g_tradeConditionService = NULL;
+    }
+    
     Print("MATrader deinitialized");
 }
 
@@ -143,11 +172,39 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
+    // 取引条件をチェック
+    if(g_tradeConditionService != NULL && 
+       !g_tradeConditionService.CheckAllConditions(_Symbol, Timeframe))
+    {
+        // 取引条件を満たさない場合は処理を中止
+        return;
+    }
+    
     // ティック処理をコントローラーに委譲
     if(g_tradeController != NULL)
     {
         g_tradeController.ProcessTick(_Symbol, Timeframe);
     }
+}
+
+//+------------------------------------------------------------------+
+//| 取引条件の設定                                                    |
+//+------------------------------------------------------------------+
+void SetupTradeConditions()
+{
+    // スプレッド条件
+    g_tradeConditionService.AddCondition(new CSpreadCondition(Spread_Limit));
+    
+    // 時間条件
+    g_tradeConditionService.AddCondition(new CTimeCondition(Trade_Hour));
+    
+    // リスク管理条件
+    g_tradeConditionService.AddCondition(new CRiskCondition(Maximum_Risk));
+    
+    // ポジション数条件
+    g_tradeConditionService.AddCondition(new CPositionCondition(Max_Positions, Magic_Number));
+    
+    Print("取引条件が設定されました");
 }
 
 //+------------------------------------------------------------------+
