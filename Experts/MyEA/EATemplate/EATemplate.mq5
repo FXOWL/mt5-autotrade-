@@ -11,17 +11,22 @@
 #include <Trade\Trade.mqh>
 
 // 自作インクルード
-// IEntryRuleインターフェースの代わりに、各クラスが同じメソッドシグネチャを実装する
-// #include <_MyInclude\IEntryRule.mqh>
-#include <_MyInclude\CompositeEntryRule.mqh>
-#include <_MyInclude\AndEntryRule.mqh>
-#include <_MyInclude\OrEntryRule.mqh>
-#include <_MyInclude\EntryRuleManager.mqh>
-#include <_MyInclude\TradeController.mqh>
+// ドメインモデルのインクルード
+#include <Experts\Domain\IEntryRule.mqh>
+#include <Experts\Domain\ITrailingRule.mqh>
+#include <Experts\Domain\Exit\Trailing\SimpleTrailingRule.mqh>
+
+// アプリケーション層のインクルード
+#include <Experts\Application\Composition\CompositeEntryRule.mqh>
+#include <Experts\Application\Composition\AndEntryRule.mqh>
+#include <Experts\Application\Composition\OrEntryRule.mqh>
+#include <Experts\Application\Services\EntryRuleManager.mqh>
+#include <Experts\Application\Services\TrailingRuleManager.mqh>
+#include <Experts\Application\Controllers\TradeController.mqh>
 
 // 各種戦略インクルード
-#include <Strategy\Buy\MABuyStrategy.mqh>
-#include <Strategy\Sell\MASellStrategy.mqh>
+#include <Experts\Domain\Entry\Price\MABuyStrategy.mqh>
+#include <Experts\Domain\Entry\Price\MASellStrategy.mqh>
 
 //--- 入力パラメータ
 input string BasicSettingsGroup = "==== 基本設定 ====";  // 基本設定
@@ -39,41 +44,18 @@ input string MASettingsGroup = "==== 移動平均設定 ====";  // 移動平均�
 input int      MA_Period            = 12;                 // 移動平均の期間
 input int      MA_Shift             = 6;                  // 移動平均のシフト
 
+input string TrailingSettingsGroup = "==== トレーリング設定 ====";  // トレーリング設定
+input int      Trailing_Pips        = 200;                // トレーリングストップのpips数
+
 input string ConditionsGroup = "==== 条件選択 ====";  // 条件選択
 input string   Buy_Rules            = "MABuy_Simple";     // 買い条件の選択
 input string   Sell_Rules           = "MASell_Simple";    // 売り条件の選択
 input string   Trailing_Rules       = "SimpleTrailing";   // トレーリング条件の選択
 
 //--- グローバル変数
-TradeController *g_tradeController = NULL;  // トレードコントローラー
-EntryRuleManager *g_ruleManager = NULL;     // ルールマネージャー
-
-//+------------------------------------------------------------------+
-//| シンプルなトレーリングストップルール                              |
-//+------------------------------------------------------------------+
-// インターフェース継承なしでダックタイピングに必要なメソッドを実装
-class SimpleTrailingRule
-{
-public:
-    // 標準メソッド - すべての「Rule」クラスで共通のシグネチャ
-    bool ShouldEnter(string symbol, ENUM_TIMEFRAMES timeframe) { return false; }
-    ENUM_ORDER_TYPE GetOrderType() { return ORDER_TYPE_BUY; }
-    double CalculateLot(string symbol, double accountBalance) { return 0.01; }
-    
-    double CalculateSL(string symbol, ENUM_ORDER_TYPE orderType, double currentPrice)
-    {
-        // 現在価格から20pips離れた位置にトレーリングストップを設定
-        double points = SymbolInfoDouble(symbol, SYMBOL_POINT);
-        double slDistance = 200 * points;
-        
-        if(orderType == ORDER_TYPE_BUY)
-            return NormalizeDouble(currentPrice - slDistance, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
-        else
-            return NormalizeDouble(currentPrice + slDistance, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
-    }
-    
-    double CalculateTP(string symbol, ENUM_ORDER_TYPE orderType, double entryPrice) { return 0; }
-};
+TradeController *g_tradeController = NULL;        // トレードコントローラー
+EntryRuleManager *g_entryRuleManager = NULL;      // エントリールールマネージャー
+TrailingRuleManager *g_trailingRuleManager = NULL;// トレーリングルールマネージャー
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -82,7 +64,8 @@ int OnInit()
 {
     // コントローラーとマネージャーの作成
     g_tradeController = new TradeController();
-    g_ruleManager = new EntryRuleManager();
+    g_entryRuleManager = new EntryRuleManager();
+    g_trailingRuleManager = new TrailingRuleManager();
     
     // マジックナンバーの設定
     g_tradeController.SetMagicNumber(Magic_Number);
@@ -98,7 +81,7 @@ int OnInit()
     if(Allow_Buy)
     {
         // 変数を使わずに直接関数の結果を使用
-        g_tradeController.SetBuyRules(g_ruleManager.GetRule(Buy_Rules));
+        g_tradeController.SetBuyRules(g_entryRuleManager.GetRule(Buy_Rules));
         Print("買い条件が設定されました: ", Buy_Rules);
     }
     
@@ -106,16 +89,20 @@ int OnInit()
     if(Allow_Sell)
     {
         // 変数を使わずに直接関数の結果を使用
-        g_tradeController.SetSellRules(g_ruleManager.GetRule(Sell_Rules));
+        g_tradeController.SetSellRules(g_entryRuleManager.GetRule(Sell_Rules));
         Print("売り条件が設定されました: ", Sell_Rules);
     }
     
     // トレーリングストップ条件の設定
     if(Use_TrailingStop)
     {
-        // 変数を使わずに直接関数の結果を使用
-        g_tradeController.SetTrailingRules(g_ruleManager.GetRule(Trailing_Rules));
-        Print("トレーリングストップ条件が設定されました: ", Trailing_Rules);
+        // 新しいトレーリングルールマネージャーを使用
+        ITrailingRule* trailingRule = g_trailingRuleManager.GetRule(Trailing_Rules);
+        if(trailingRule != NULL)
+        {
+            g_tradeController.SetTrailingRule(trailingRule);
+            Print("トレーリングストップ条件が設定されました: ", Trailing_Rules);
+        }
     }
     
     Print("MATrader initialized successfully");
@@ -134,11 +121,18 @@ void OnDeinit(const int reason)
         g_tradeController = NULL;
     }
     
-    // ルールマネージャーの解放
-    if(g_ruleManager != NULL)
+    // エントリールールマネージャーの解放
+    if(g_entryRuleManager != NULL)
     {
-        delete g_ruleManager;
-        g_ruleManager = NULL;
+        delete g_entryRuleManager;
+        g_entryRuleManager = NULL;
+    }
+    
+    // トレーリングルールマネージャーの解放
+    if(g_trailingRuleManager != NULL)
+    {
+        delete g_trailingRuleManager;
+        g_trailingRuleManager = NULL;
     }
     
     Print("MATrader deinitialized");
@@ -162,8 +156,8 @@ void OnTick()
 bool RegisterStrategies()
 {
     // 移動平均戦略の登録
-    g_ruleManager.RegisterRule(new MABuyStrategy(MA_Period, MA_Shift), "MABuy_Simple");
-    g_ruleManager.RegisterRule(new MASellStrategy(MA_Period, MA_Shift), "MASell_Simple");
+    g_entryRuleManager.RegisterRule(new MABuyStrategy(MA_Period, MA_Shift), "MABuy_Simple");
+    g_entryRuleManager.RegisterRule(new MASellStrategy(MA_Period, MA_Shift), "MASell_Simple");
     
     // 複合ルールの例
     // MAとRSIを組み合わせた買いストラテジー（例として）
@@ -172,11 +166,11 @@ bool RegisterStrategies()
     AndEntryRule *maBuyAndRule = new AndEntryRule(ORDER_TYPE_BUY);
     maBuyAndRule.AddRule(new MABuyStrategy(MA_Period, MA_Shift));
     // 他の条件をここに追加（例：RSI）
-    g_ruleManager.RegisterRule(maBuyAndRule, "MABuy_AND_RSI");
+    g_entryRuleManager.RegisterRule(maBuyAndRule, "MABuy_AND_RSI");
     */
     
     // シンプルなトレーリングストップルールを登録
-    g_ruleManager.RegisterRule(new SimpleTrailingRule(), "SimpleTrailing");
+    g_trailingRuleManager.RegisterRule(new SimpleTrailingRule(Trailing_Pips), "SimpleTrailing");
     
     return true;
 }
